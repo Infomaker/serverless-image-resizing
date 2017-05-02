@@ -5,33 +5,38 @@ const S3 = new AWS.S3();
 const Sharp = require('sharp');
 
 const BUCKET = process.env.BUCKET;
-const URL = process.env.URL;
 
-exports.handler = function(event, context, callback) {
-  const key = event.queryStringParameters.key;
-  const match = key.match(/(\d+)x(\d+)\/(.*)/);
-  const width = parseInt(match[1], 10);
-  const height = parseInt(match[2], 10);
-  const originalKey = match[3];
+exports.handler = function (event, context, callback)
+{
+    const originalKey = event.originalKey
+    const targetKey = event.targetKey
+    const contentType = event.contentType
+    const width = event.width ? parseInt(event.width, 10) : null
+    const height = event.height ? parseInt(event.height, 10) : null
 
-  S3.getObject({Bucket: BUCKET, Key: originalKey}).promise()
-    .then(data => Sharp(data.Body)
-      .resize(width, height)
-      .toFormat('png')
-      .toBuffer()
-    )
-    .then(buffer => S3.putObject({
-        Body: buffer,
-        Bucket: BUCKET,
-        ContentType: 'image/png',
-        Key: key,
-      }).promise()
-    )
-    .then(() => callback(null, {
-        statusCode: '301',
-        headers: {'location': `${URL}/${key}`},
-        body: '',
-      })
-    )
-    .catch(err => callback(err))
+    S3.getObject({Bucket: BUCKET, Key: originalKey}).promise()
+            .then(data => Sharp(data.Body)
+                    .limitInputPixels(0)
+                    .rotate()
+                    .resize(width, height)
+                    .toBuffer()
+            )
+            .then(buffer => S3.putObject(
+                    {
+                        Body: buffer,
+                        Bucket: BUCKET,
+                        ContentType: contentType,
+                        Key: targetKey,
+                    }
+                  ).promise()
+            )
+            .then(() => callback(
+                    null, {
+                        statusCode: '201',
+                        headers: {'location': `${BUCKET}/${targetKey}`},
+                        body: '',
+                    }
+                  )
+            )
+            .catch(err => callback(err))
 }
