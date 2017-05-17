@@ -4,39 +4,50 @@ const AWS = require('aws-sdk');
 const S3 = new AWS.S3();
 const Sharp = require('sharp');
 
-const BUCKET = process.env.BUCKET;
+exports.handler = function (event, context, callback) {
+    console.log('Event was:', event)
 
-exports.handler = function (event, context, callback)
-{
-    const originalKey = event.originalKey
-    const targetKey = event.targetKey
-    const contentType = event.contentType
-    const width = event.width ? parseInt(event.width, 10) : null
-    const height = event.height ? parseInt(event.height, 10) : null
+    const message = parseMessageSync(event)
+    console.log('Input message (event) was:', message)
 
-    S3.getObject({Bucket: BUCKET, Key: originalKey}).promise()
-            .then(data => Sharp(data.Body)
-                    .limitInputPixels(0)
-                    .rotate()
-                    .resize(width, height)
-                    .toBuffer()
+    const originalKey = message.originalKey
+    const targetKey = message.targetKey
+    const contentType = message.contentType
+    const bucket = message.bucket
+    const width = message.width ? parseInt(message.width, 10) : null
+    const height = message.height ? parseInt(message.height, 10) : null
+
+    S3.getObject({Bucket: bucket, Key: originalKey}).promise()
+        .then(data => Sharp(data.Body)
+            .limitInputPixels(0)
+            .rotate()
+            .resize(width, height)
+            .toBuffer()
+        )
+        .then(buffer => S3.putObject(
+            {
+                Body: buffer,
+                Bucket: bucket,
+                ContentType: contentType,
+                Key: targetKey,
+            }
+            ).promise()
+        )
+        .then(() => callback(
+            null, {
+                statusCode: '201',
+                headers: {'location': `${bucket}/${targetKey}`},
+                body: '',
+            }
             )
-            .then(buffer => S3.putObject(
-                    {
-                        Body: buffer,
-                        Bucket: BUCKET,
-                        ContentType: contentType,
-                        Key: targetKey,
-                    }
-                  ).promise()
-            )
-            .then(() => callback(
-                    null, {
-                        statusCode: '201',
-                        headers: {'location': `${BUCKET}/${targetKey}`},
-                        body: '',
-                    }
-                  )
-            )
-            .catch(err => callback(err))
+        )
+        .catch(err => callback(err))
+}
+
+let parseMessageSync = function (event) {
+    if (event.Records) {
+        return JSON.parse(event.Records[0].Sns.Message)
+    } else {
+        return event
+    }
 }
